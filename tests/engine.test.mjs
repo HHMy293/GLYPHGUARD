@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {analyze,scriptOf,skeleton} from '../dist/engine.mjs';
+const check=(name,fn)=>{fn();console.log('✓ '+name)};
+check('ASCII domain, URL hostname extraction, port, path and uppercase',()=>{assert.equal(analyze('HTTPS://Amazon.COM:443/login?x=1#hash').ascii,'amazon.com');assert.equal(analyze('amazon.com').level,'safe');assert.equal(analyze('amazon.com:8080/path').ascii,'amazon.com');});
+check('Cyrillic a is decoded and inspected; actual Punycode is correct',()=>{const r=analyze('https://аmazon.com');assert.equal(r.ascii,'xn--mazon-3ve.com');assert.equal(r.details[0].hex,'U+0430');assert.equal(r.details[0].name,'CYRILLIC SMALL LETTER A');assert.equal(r.level,'danger');assert.ok(r.mixed);});
+check('Already encoded Punycode is decoded before inspection',()=>{const r=analyze('xn--80ak6aa92e.com');assert.equal(r.unicode,'аррӏе.com');assert.ok(r.hasPunycode);assert.equal(r.level,'danger');});
+check('PayPal mixed-script and Greek lookalike',()=>{assert.ok(analyze('раypal.com').mixed);assert.equal(analyze('gοogle.com').details[1].script,'Greek');assert.equal(analyze('gοogle.com').details[1].similar,'o');});
+check('Invisible evidence survives browser IDNA removal',()=>{const r=analyze('ama\u200bzon.com');assert.equal(r.ascii,'amazon.com');assert.equal(r.hidden[0].hex,'U+200B');assert.equal(r.level,'danger');});
+check('Raw controls and bidi remain detected even in invalid host',()=>{assert.equal(analyze('ama\nzon.com').level,'danger');assert.equal(analyze('ama\u202ezon.com').level,'danger');});
+check('Userinfo does not hide the true destination',()=>{const r=analyze('https://amazon.com@evil.example/login');assert.equal(r.ascii,'evil.example');assert.equal(r.level,'danger');});
+check('Percent-encoded Unicode hostname is inspected',()=>{const r=analyze('%D0%B0mazon.com');assert.equal(r.details[0].hex,'U+0430');assert.equal(r.level,'danger');});
+check('Path query and fragment never pollute hostname',()=>{assert.equal(analyze('amazon.com/аmazon?url=раypal#а').level,'safe');assert.equal(analyze('https://amazon.com\\@evil.example').ascii,'amazon.com');});
+check('Internationalized domain is flagged without claiming confirmed fraud',()=>{const r=analyze('tênmiền.vn');assert.ok(r.hasPunycode);assert.equal(r.level,'danger');});
+check('IPv6, IPv4 and fullwidth input',()=>{assert.equal(analyze('http://[::1]:8080/a').ascii,'[::1]');assert.equal(analyze('127.0.0.1').isIP,true);assert.equal(analyze('ａmazon.com').level,'danger');});
+check('Invalid URL and input limits',()=>{assert.equal(analyze(''),null);assert.throws(()=>analyze('javascript:alert(1)'));assert.throws(()=>analyze('a'.repeat(8193)));assert.throws(()=>analyze('%XX.com'));assert.equal(analyze('bad host.com').level,'danger');assert.equal(analyze('xn--.com').level,'danger');});
+check('Unicode script ranges and skeleton',()=>{assert.equal(scriptOf(0x0430),'Cyrillic');assert.equal(scriptOf(0x03bf),'Greek');assert.equal(scriptOf(0x4e00),'Han');assert.equal(scriptOf(0x0301),'Inherited');assert.equal(scriptOf(0x2e),'Common');assert.equal(skeleton('раypal'),skeleton('paypal'));assert.equal(analyze('한글.kr').details[0].name,'HANGUL SYLLABLE HAN');});
+console.log('All engine checks passed.');
